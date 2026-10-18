@@ -1,0 +1,65 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+enum BookStatus{
+  ACTIVE
+  ONLOAN
+  LOST
+}
+// model Admin {
+//   id String @id @default(uuid())
+//   email String @unique
+//   password String
+// }
+model User {
+  id String @id @default(uuid())
+  email String @unique
+  password String 
+  name String
+  createdAt DateTime @default(now())
+  loan Loan[]
+
+
+}
+model Books {
+  id Int @id @default(autoincrement())
+  Name String 
+  Author String
+  Catagory String
+  Copies CopiesBooks[]
+
+}
+model CopiesBooks{
+  id Int @id @default(autoincrement())
+  bookId Int
+  Status BookStatus @default(ACTIVE)
+  book Books @relation(fields: [bookId],references: [id],onDelete: Restrict)
+  loan Loan[]
+  @@index([bookId,Status])
+
+}
+model Loan{
+  id Int @id @default(autoincrement())
+  CbookId Int
+  UserId String
+  CreatedDate DateTime @default(now())
+  returnDate DateTime
+  SubmitDate DateTime?
+  fineAmount Decimal @default(0) @db.Decimal(10,2)
+  findeDue Boolean @default(false)
+  user User @relation(fields: [UserId],references: [id])
+  copies CopiesBooks @relation(fields: [CbookId],references: [id])
+  @@index([UserId])
+  @@index([CbookId])
+
+}
