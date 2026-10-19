@@ -16,7 +16,9 @@ app.get('/',(req,res)=>{
 //All books options
 app.get('/books', async (req, res) => {
   try {
-    const books = await prisma.books.findMany()
+    const books = await prisma.books.findMany({
+      include:{Copies:true}
+    })
     res.json(books);
   } catch (error) {
     console.error(error);
@@ -44,6 +46,20 @@ app.post('/books',async(req,res)=>{
 
 }
 })
+app.patch('/books/:id',async(req,res)=>{
+  const id = Number(req.params.id)
+  const book = await prisma.books.findUnique({where:{id}})
+  const updatedBooks= await prisma.books.update({
+    where:{id},
+    data:{
+      Name:req.body.Name,
+      Author:req.body.Author,
+      Catagory:req.body.Catagory
+
+    }
+  })
+  res.send(updatedBooks)
+})
 //All copies books
 app.get('/category',async(req,res)=>{
   try{
@@ -53,6 +69,21 @@ app.get('/category',async(req,res)=>{
     console.error(error)
     res.status(500).json({error:error.message})
   }
+})
+app.post('/books/:id/copies',async(req,res)=>{
+  try{
+   const bookId=Number(req.params.id)
+   const count=Number(req.body.count)
+   const result = await prisma.copiesBooks.createMany({
+    data: Array.from({length:count},()=>({bookId}))
+   })
+   res.status(201).json({added:result.count})
+  }catch(error){
+    console.error(error)
+    res.status(500).json({error:error.message})
+  }
+  
+  
 })
 //All users option
 app.get('/user',async(req,res)=>{
