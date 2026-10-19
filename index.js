@@ -60,6 +60,28 @@ app.patch('/books/:id',async(req,res)=>{
   })
   res.send(updatedBooks)
 })
+app.delete('/books/:id',async(req,res)=>{
+  const id = Number(req.params.id)
+ const targetedData= await prisma.books.findUnique({
+  where:{id},
+  include:{Copies:true}
+ })
+ const checkActive=targetedData.Copies.every(target=>target.Status==='ACTIVE')
+ if(!checkActive){
+  return res.status(400).json({message:"some copy are still in loan"})
+ }
+ await prisma.$transaction(async(tx)=>{
+  await tx.copiesBooks.deleteMany({
+    where:{bookId:id}
+  })
+  await tx.books.delete({
+    where:{id}
+  })
+ })
+ return res.json({
+  message:"successfully deleted"
+ })
+})
 //All copies books
 app.get('/category',async(req,res)=>{
   try{
