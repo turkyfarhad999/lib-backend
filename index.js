@@ -107,6 +107,39 @@ app.post('/books/:id/copies',async(req,res)=>{
   
   
 })
+app.patch('/category/:id',async(req,res)=>{
+  const id = Number(req.params.id)
+  const updatecat= await prisma.copiesBooks.update({
+    where:{id},
+    data:{
+      Status:req.body.Status
+    }
+
+  })
+  res.send(updatecat)
+})
+app.delete('/category/:id', async (req, res) => {
+  try {
+    const id = Number(req.params.id)
+    if (!Number.isInteger(id)) {
+      return res.status(400).json({ error: 'Invalid copy id' })
+    }
+
+    await prisma.copiesBooks.delete({
+      where: { id, Status: 'ACTIVE' },
+    })
+    res.json({ deleted: true })
+  } catch (error) {
+    if (error.code === 'P2025') {
+      return res.status(409).json({ error: 'Copy not found or not ACTIVE. Only ACTIVE copies can be deleted.' })
+    }
+    if (error.code === 'P2003') {
+      return res.status(409).json({ error: 'This copy has loan records and cannot be deleted.' })
+    }
+    console.error(error)
+    res.status(500).json({ error: error.message })
+  }
+})
 //All users option
 app.get('/user',async(req,res)=>{
   try {
