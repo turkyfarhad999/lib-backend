@@ -154,7 +154,10 @@ app.get('/user',async(req,res)=>{
 //All loans
 app.get('/loans',async(req,res)=>{
   try {
-    const users=await prisma.loan.findMany()
+    const users=await prisma.loan.findMany({
+      include:{copies:true,user:true}
+    })
+    
     res.json(users)
   } catch(error){
     console.error(error)
