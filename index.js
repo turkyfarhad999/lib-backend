@@ -143,7 +143,9 @@ app.delete('/category/:id', async (req, res) => {
 //All users option
 app.get('/user',async(req,res)=>{
   try {
-    const users=await prisma.user.findMany()
+    const users=await prisma.user.findMany({
+      include:{loan:true}
+    })
     res.json(users)
   } catch(error){
     console.error(error)
@@ -164,6 +166,129 @@ app.get('/loans',async(req,res)=>{
     res.status(500).json({error:error.message})
   }
 
+})
+app.post('/loans', async (req, res) => {
+  try {
+    const { userId, newUser, bookIds, returnDate } = req.body
+    if (!bookIds?.length || !returnDate || (!userId && !newUser)) {
+      return res.status(400).json({ error: 'Missing fields' })
+    }
+
+    const loans = await prisma.$transaction(async (tx) => {
+      let memberId = userId
+      if (newUser) {
+        const user = await tx.user.create({
+          data: { name: newUser.name.trim(), email: newUser.email.trim().toLowerCase() },
+        })
+        memberId = user.id
+      }
+
+      const created = []
+      for (const bookId of bookIds.map(Number)) {
+        const copy = await tx.copiesBooks.findFirst({
+          where: { bookId, Status: 'ACTIVE' },
+          orderBy: { id: 'asc' },
+        })
+        if (!copy) throw new Error('NO_COPY')
+
+        await tx.copiesBooks.update({
+          where: { id: copy.id },
+          data: { Status: 'ONLOAN' },
+        })
+        const loan = await tx.loan.create({
+          data: { CbookId: copy.id, UserId: memberId, returnDate: new Date(returnDate) },
+        })
+        created.push(loan)
+      }
+      return created
+    })
+
+    res.status(201).json(loans)
+  } catch (error) {
+    if (error.code === 'P2002') {
+      return res.status(409).json({ error: 'A member with this email already exists. Please select the existing member.' })
+    }
+    if (error.message === 'NO_COPY') {
+      return res.status(409).json({ error: 'No copy available for a selected book.' })
+    }
+    console.error(error)
+    res.status(500).json({ error: error.message })
+  }
+})
+app.patch('/loans/:id/return', async (req, res) => {
+  try {
+    const FINE_PER_DAY = 5
+    const dhakaDay = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Dhaka', year: 'numeric', month: '2-digit', day: '2-digit',
+    })
+    const dayNum = (s) => {
+      const [y, m, d] = s.split('-').map(Number)
+      return Math.floor(Date.UTC(y, m - 1, d) / 86400000)
+    }
+
+    const id = Number(req.params.id)
+    const { returnDate, payNow } = req.body
+    if (!Number.isInteger(id) || !/^\d{4}-\d{2}-\d{2}$/.test(returnDate || '')) {
+      return res.status(400).json({ error: 'Invalid loan id or return date' })
+    }
+    const submit = new Date(`${returnDate}T00:00:00+06:00`)
+    if (Number.isNaN(submit.getTime())) {
+      return res.status(400).json({ error: 'Invalid return date' })
+    }
+
+    const updated = await prisma.$transaction(async (tx) => {
+      const loan = await tx.loan.findUnique({ where: { id } })
+      if (!loan) throw new Error('NOT_FOUND')
+      if (loan.SubmitDate) throw new Error('ALREADY_RETURNED')
+      if (dayNum(returnDate) < dayNum(dhakaDay.format(loan.CreatedDate))) {
+        throw new Error('BEFORE_LOAN')
+      }
+
+      const lateDays = Math.max(0, dayNum(returnDate) - dayNum(dhakaDay.format(loan.returnDate)))
+      const fine = lateDays * FINE_PER_DAY
+
+      const result = await tx.loan.updateMany({
+        where: { id, SubmitDate: null },
+        data: {
+          SubmitDate: submit,
+          fineAmount: fine,
+          findeDue: fine > 0 && !payNow, // pay now / no fine => false, pay later => true
+        },
+      })
+      if (result.count === 0) throw new Error('ALREADY_RETURNED')
+
+      await tx.copiesBooks.update({
+        where: { id: loan.CbookId },
+        data: { Status: 'ACTIVE' },
+      })
+      return tx.loan.findUnique({ where: { id } })
+    })
+
+    res.json(updated)
+  } catch (error) {
+    if (error.message === 'NOT_FOUND') return res.status(404).json({ error: 'Loan not found' })
+    if (error.message === 'ALREADY_RETURNED') return res.status(409).json({ error: 'This book has already been returned' })
+    if (error.message === 'BEFORE_LOAN') return res.status(400).json({ error: 'Return date cannot be before the loan date' })
+    console.error(error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
+app.patch('/loans/:id/pay-fine', async (req, res) => {
+  try {
+    const id = Number(req.params.id)
+    const result = await prisma.loan.updateMany({
+      where: { id, findeDue: true, SubmitDate: { not: null } },
+      data: { findeDue: false }, // fineAmount stays for history
+    })
+    if (result.count === 0) {
+      return res.status(409).json({ error: 'No unpaid fine on this loan' })
+    }
+    res.json({ paid: true })
+  } catch (error) {
+    console.error(error)
+    res.status(500).json({ error: error.message })
+  }
 })
 
 app.listen(8000,()=>{
